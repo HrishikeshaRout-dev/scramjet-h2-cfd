@@ -1,0 +1,1 @@
+Planned analysis: Mach and velocity, pressure and temperature, H2/O2/H2O/OH mass fractions, heat release, wall heat flux, total-pressure loss, fuel/air mass flow, equivalence ratio, combustion efficiency, and control-volume thrust quantities. Keep large transient field output out of Git by default; commit scripts and selected lightweight summaries.
