@@ -82,6 +82,8 @@ point_tags = {}
 curve_data = {}
 lower_curves = []
 upper_curves = []
+lower_path_curves = []
+upper_path_curves = []
 fuel_curves = []
 all_curves = []
 
@@ -106,6 +108,10 @@ def add_path(points, wall_name):
         curve_data[tag] = (key, wall_name, np.array([a, b], dtype=float))
         curves.append(tag)
         all_curves.append(tag)
+        if wall_name == "lower":
+            lower_path_curves.append(tag)
+        else:
+            upper_path_curves.append(tag)
         if key in fuel_keys:
             fuel_curves.append(tag)
         elif wall_name == "lower":
@@ -126,7 +132,7 @@ if len(fuel_curves) != 36:
     raise ValueError("Mapped " + str(len(fuel_curves)) + " fuel openings instead of 36")
 
 loop = gmsh.model.geo.addCurveLoop(
-    lower_curves + [outlet_curve] + [-tag for tag in reversed(upper_curves)] + [inlet_curve]
+    lower_path_curves + [outlet_curve] + [-tag for tag in reversed(upper_path_curves)] + [inlet_curve]
 )
 surface = gmsh.model.geo.addPlaneSurface([loop])
 gmsh.model.geo.synchronize()
@@ -225,6 +231,6 @@ gmsh.write(OUTPUT_FILE)
 print("Wrote:", OUTPUT_FILE)
 print("Injector openings:", len(fuel_curves))
 print("Boundary surface counts:", {name: len(tags) for name, tags in surface_groups.items()})
-print("Volume cells:", gmsh.model.mesh.getElementProperties(5)[3] if False else "inspect with checkMesh")
+print("Run gmshToFoam and checkMesh to validate the OpenFOAM mesh")
 
 gmsh.finalize()
