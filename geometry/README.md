@@ -1,0 +1,1 @@
+Place the complete original parametric geometry Python script here. The discussed DXF, VTK polydata, and PNG exports are geometry/visualization outputs; VTK is not a CFD volume mesh. The original complete source has not yet been committed, so do not replace it with a reconstructed approximation.
