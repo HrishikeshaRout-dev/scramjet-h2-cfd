@@ -21,8 +21,8 @@ python geometry\export_scramjet_planar_concept.py
 as an extruded wing/body, cowl, and reference flowpath, plus a 2D side-view
 PNG. The current user-supplied reference dimensions are a 30 mm duct, 90 mm
 body-leading-edge-to-cowl-line height, 90 mm rectangular module span, 150 mm
-isolator, three cavity stations, and a 120 mm one-sided, 12-degree aft-body
-nozzle ramp. The generated profile places the cowl lip at x=389.4 mm, gives a
+isolator, three cavity stations, and a 120 mm nozzle that diverges symmetrically (6 degrees on
+both the body wall and the cowl wall; the cowl's outer underside stays level). The generated profile places the cowl lip at x=389.4 mm, gives a
 36.6 mm lip-plane height (1.219:1 internal contraction), and reaches x=949 mm
 at the nozzle exit. The external compression contour and actual internal
 contraction are calculated by the geometry script. These are undergraduate concept

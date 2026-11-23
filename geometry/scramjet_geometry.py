@@ -5,7 +5,8 @@ d2r = np.radians
 # ============ WING-INTEGRATED, ONE-SIDED SCRAMJET CONCEPT (mm, deg) ============
 # Undergraduate concept study. Not CFD-validated. Reference flight: Mach 6 at 25 km.
 # The body wall does the compression; the cowl lip sits at the compression contour end.
-# The aft-body ramp expands the nozzle. This is a planar, one-sided layout, not axisymmetric.
+# The nozzle diverges symmetrically: the aft-body ramp and the cowl flow-side wall open at the same
+# half-angle, while the cowl's outer underside stays level. Planar, one-sided layout, not axisymmetric.
 H = 30.0
 CR_geo = 3.0
 SPAN_WIDTH = 90.0
@@ -25,8 +26,9 @@ hole_w = 0.375
 hole_len = 1.5
 hole_ang = 30.0
 L_tail = 100.0
-noz_deg = 12.0
+noz_deg = 6.0  # nozzle half-angle, applied to both the body wall and the cowl wall
 L_noz = 120.0
+cowl_noz_deg = noz_deg  # symmetric divergence
 cowl_wedge_deg = 10.0
 cowl_t = cav_r + 8.0
 le_deg = 5.0
@@ -102,15 +104,17 @@ for i in range(n_cav):
 x_comb_end = x_first + (n_cav - 1) * pitch + L_cav + L_tail
 x_exit = x_comb_end + L_noz
 dy = L_noz * np.tan(d2r(noz_deg))
+dyc = L_noz * np.tan(d2r(cowl_noz_deg))
+assert cowl_t > dyc + 1.0, "cowl too thin for this divergence"
 body += cav + [(x_comb_end, -H / 2)]
 if L_noz > 0:
     body.append((x_exit, -H / 2 - dy))
 y_exit_body = body[-1][1]
 
-# Flat internal cowl with mirrored cavity features; only the body expands the nozzle.
+# Internal cowl with mirrored cavity features; its wall diverges in the nozzle like the body wall.
 cowl = [(x_lip, H / 2), (x_t, H / 2)] + [(a, -b) for a, b in cav] + [
     (x_comb_end, H / 2),
-    (x_exit, H / 2),
+    (x_exit, H / 2 + dyc),
 ]
 inj_body = [((a[0], -H / 2 + a[1]), (b[0], -H / 2 + b[1])) for a, b in inj_inlet]
 inj_cowl = [((a[0], -a[1]), (b[0], -b[1])) for a, b in inj_body]
@@ -163,7 +167,7 @@ print(
 )
 print(
     f"Inlet end x={x_t:.1f}, isolator={L_iso:.1f}, combustor start x={x_first:.1f}, "
-    f"cavity L/D={L_cav / cav_r:.2f}, nozzle exit height={H + dy:.1f}, "
+    f"cavity L/D={L_cav / cav_r:.2f}, nozzle exit height={H + dy + dyc:.1f}, "
     f"overall length={x_exit:.1f}"
 )
 

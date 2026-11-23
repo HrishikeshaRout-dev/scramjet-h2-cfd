@@ -7,7 +7,7 @@ wing-integrated scramjet concept.
 
 - `geometry/scramjet_geometry.py` is the current profile. It places body-wall
   compression ahead of the cowl lip, followed by an isolator, three cavity
-  stations, and a one-sided aft-body nozzle.
+  stations, and a symmetrically diverging nozzle (6 degrees on each wall).
 - `mesh/build_gmsh_mesh.py` creates the internal 2D flowpath mesh, extruded
   1 mm in span and treated as `empty`. It does not resolve external inlet
   compression.
