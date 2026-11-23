@@ -1,0 +1,131 @@
+import numpy as np
+d2r = np.radians
+
+# ===================== PARAMETERS (mm, deg) =====================
+# Sized from the Mach 6 / 25 km design point (target combustor entry ~ M3, ~620 K, ~65 kPa),
+# NOT from sketch proportions (the sketch is topology only).
+H        = 20.0      # duct height
+CR       = 8.0       # tip-to-tip capture height / duct height
+delta1   = 15.0      # final compression-wall angle before turn-back
+k0       = 0.3       # tip wall angle = k0*delta1 (wall curves and steepens)
+R_t      = 100.0     # turn-back fillet radius into straight duct
+L_iso    = 150.0     # isolator length
+n_cav    = 3
+pitch    = 50.0      # cavity start-to-start
+theta    = 30.0      # aft-ramp angle, tangent to the semicircle (slope-continuous)
+cav_r    = 6.0       # semicircle radius = cavity depth
+r_fore   = 3.0       # fillet radius at cavity forward lip (wall -> semicircle)
+r_aft    = 8.0       # fillet radius at cavity aft lip (ramp -> wall)
+hole_f0, hole_f1 = 0.15, 0.70   # hole row extent along the ramp (fraction of ramp length from the semicircle)
+n_holes  = 6         # injection holes along each ramp
+hole_w   = 0.013      # hole width (2D slot): 36 sonic holes at p0~0.35 MPa give phi=0.3
+hole_len = 0.3       # hole channel length (~20 widths)
+hole_ang = 30.0      # hole angle measured from the downstream (aft) wall, pointing up-ramp
+L_tail   = 100.0     # straight duct after last cavity
+noz_deg  = 0.0       # optional diverging exit (0 = straight, as in sketch)
+L_noz    = 0.0
+
+Hcap = CR*H; Delta = (Hcap-H)/2
+
+# ---------------- compression contour: wall angle varies linearly with x ----------------
+xi = np.linspace(0, 1, 801)
+g = np.tan(d2r(k0*delta1 + (delta1-k0*delta1)*xi))
+Ig = np.trapezoid(g, xi)
+Lc = (Delta - R_t*(1-np.cos(d2r(delta1))))/Ig
+x = xi*Lc; y = Lc*np.concatenate([[0], np.cumsum(0.5*(g[1:]+g[:-1])*np.diff(xi))])
+lower = [(a, -Hcap/2+b) for a, b in zip(x, y)]
+Pc = np.array(lower[-1]); cen = Pc + R_t*np.array([np.sin(d2r(delta1)), -np.cos(d2r(delta1))])
+for a in np.linspace(90+delta1, 90, 25)[1:]:
+    lower.append(tuple(cen + R_t*np.array([np.cos(d2r(a)), np.sin(d2r(a))])))
+x_t = lower[-1][0]
+
+# ---------------- cavity: semicircle + tangent ramp (slope-continuous), holes on ramp ----------------
+inj_inlet = []
+def cavity(x0):
+    r, th = cav_r, d2r(theta)
+    cx = x0 + r                                   # semicircle centre (on the wall line, z=0)
+    # --- forward-lip fillet: arc tangent to the wall line and to the semicircle ---
+    dx = np.sqrt(r*r + 2*r*r_fore); xf = cx - dx
+    pts = [(xf, 0.0)]
+    psi = np.degrees(np.arctan2(r_fore, dx))                       # angle of tangent point seen from fillet centre
+    for a in np.linspace(90, psi, 12)[1:]:
+        pts.append((xf + r_fore*np.cos(d2r(a)), -r_fore + r_fore*np.sin(d2r(a))))
+    phi0 = 180 + np.degrees(np.arctan2(r_fore, dx))                # same tangent point seen from the semicircle centre
+    for p in np.linspace(phi0, 270+theta, 40)[1:]:
+        pts.append((cx + r*np.cos(d2r(p)), r*np.sin(d2r(p))))
+    A = np.array([cx + r*np.sin(th), -r*np.cos(th)])               # semicircle/ramp tangent point
+    L = r*(1 + 1/np.sin(th)); B = np.array([x0+L, 0.0])            # ramp meets wall (before filleting)
+    u = (B-A)/np.linalg.norm(B-A); m = np.array([-u[1], u[0]])
+    al = d2r(hole_ang); dv = np.cos(al)*u + np.sin(al)*m
+    h = hole_w/(2*np.sin(al))
+    ramp_len = np.linalg.norm(B-A); Tl = r_aft*np.tan(th/2)
+    assert Tl < (1-hole_f1)*ramp_len - 0.5, "aft fillet too large for hole row"
+    for f in np.linspace(hole_f0, hole_f1, n_holes):
+        P = A + f*(B-A); I1, I2 = P-h*u, P+h*u
+        o1 = (I1-P) - np.dot(I1-P, dv)*dv
+        Pb = P - hole_len*dv
+        B1, B2 = Pb+o1, Pb-o1
+        pts += [tuple(I1), tuple(B1), tuple(B2), tuple(I2)]
+        inj_inlet.append((tuple(B1), tuple(B2)))
+    # --- aft-lip fillet: arc tangent to the ramp and to the wall line ---
+    cf2 = np.array([B[0]+Tl, -r_aft])
+    for a in np.linspace(90+theta, 90, 12):
+        pts.append((cf2[0] + r_aft*np.cos(d2r(a)), cf2[1] + r_aft*np.sin(d2r(a))))
+    return pts, L + Tl
+
+x_first = x_t + L_iso
+cav = []
+for i in range(n_cav):
+    p, L_cav = cavity(x_first + i*pitch); cav += [(a, -H/2+z) for a, z in p]
+x_comb_end = x_first + (n_cav-1)*pitch + L_cav + L_tail
+x_exit = x_comb_end + L_noz
+dy = L_noz*np.tan(d2r(noz_deg))
+lower += [(x_t, -H/2)] + cav + [(x_comb_end, -H/2)]
+if L_noz > 0: lower.append((x_exit, -H/2-dy))
+upper = [(a, -b) for a, b in lower]
+inj_lower = [((a[0], -H/2+a[1]), (b[0], -H/2+b[1])) for a, b in inj_inlet]
+inj_upper = [((a[0], -a[1]), (b[0], -b[1])) for a, b in inj_lower]
+inj_all = inj_lower + inj_upper
+
+lower_solid = lower + [(x_exit, -Hcap/2), (0.0, -Hcap/2)]
+upper_solid = upper + [(x_exit,  Hcap/2), (0.0,  Hcap/2)]
+flow = lower + list(reversed(upper))
+parts = {"LOWER_WALL": lower_solid, "UPPER_WALL": upper_solid, "FLOWPATH": flow}
+print(f"Hcap={Hcap:.0f} H={H:.0f} CR={CR:.1f}  contour length={Lc:.1f}  tip angle={k0*delta1:.1f} deg  throat x={x_t:.1f}")
+print(f"cavity L={L_cav:.1f} D={cav_r:.1f} L/D={L_cav/cav_r:.2f}  first cavity x={x_first:.1f}  exit x={x_exit:.1f}")
+
+# ---------------- DXF ----------------
+import ezdxf
+doc = ezdxf.new("R2010"); doc.units = 4; msp = doc.modelspace()
+for (name, poly), col in zip(parts.items(), (7, 5, 3)):
+    doc.layers.add(name, color=col); msp.add_lwpolyline(poly, close=True, dxfattribs={"layer": name})
+doc.layers.add("INJ_INLET", color=1)
+for a, b in inj_all: msp.add_line(a, b, dxfattribs={"layer": "INJ_INLET"})
+doc.saveas("scramjet_sketch_2d.dxf")
+
+# ---------------- VTK (lines, meters) ----------------
+pts, lines, pid = [], [], []
+items = [(k, [p+[p[0]]]) for k, p in enumerate(parts.values())] + [(3, [[a, b] for a, b in inj_all])]
+for k, segs in items:
+    for s in segs:
+        i0 = len(pts); pts += [(a/1000, b/1000, 0.0) for a, b in s]
+        lines.append(list(range(i0, i0+len(s)))); pid.append(k)
+with open("scramjet_sketch_2d.vtk", "w") as fh:
+    fh.write("# vtk DataFile Version 3.0\nscramjet 2D (m); part_id 0=lower 1=upper 2=flowpath 3=injector inlets\nASCII\nDATASET POLYDATA\n")
+    fh.write(f"POINTS {len(pts)} float\n"+"\n".join(f"{p[0]:.7f} {p[1]:.7f} 0" for p in pts)+"\n")
+    fh.write(f"LINES {len(lines)} {sum(len(l)+1 for l in lines)}\n")
+    for l in lines: fh.write(f"{len(l)} "+" ".join(map(str, l))+"\n")
+    fh.write(f"CELL_DATA {len(lines)}\nSCALARS part_id int 1\nLOOKUP_TABLE default\n"+"\n".join(map(str, pid))+"\n")
+
+# ---------------- preview ----------------
+import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
+fig, ax = plt.subplots(3, 1, figsize=(13, 13))
+for a in ax:
+    for (n, p), c in zip(parts.items(), ("k", "k", "tab:green")):
+        q = np.array(p+[p[0]]); a.plot(q[:, 0], q[:, 1], c, lw=1)
+    for s, e in inj_all: a.plot(*zip(s, e), "r", lw=2.5)
+    a.set_aspect("equal"); a.grid(alpha=.3)
+ax[0].set_title("Full geometry (mm)")
+ax[1].set_xlim(x_first-20, x_comb_end+5); ax[1].set_ylim(-H, H); ax[1].set_title("Cavity section")
+ax[2].set_xlim(x_first-3, x_first+L_cav+3); ax[2].set_ylim(-H/2-cav_r-2, -H/2+3); ax[2].set_title("Single cavity: semicircle + tangent ramp, angled holes (lower wall)")
+plt.tight_layout(); plt.savefig("scramjet_sketch_2d_preview.png", dpi=110)

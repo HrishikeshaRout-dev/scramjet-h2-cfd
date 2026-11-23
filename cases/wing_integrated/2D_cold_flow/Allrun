@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+case_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+export WM_PROJECT_DIR=/usr/share/openfoam
+export WM_PROJECT_VERSION=v1912
+export FOAM_CONFIG_MODE=o
+export FOAM_CONFIG_ETC=/usr/share/openfoam/etc
+
+if [[ ! -d "$case_dir/constant/polyMesh" ]]; then
+    echo "Mesh not found. Run Allmesh first." >&2
+    exit 1
+fi
+
+cd "$case_dir"
+if [[ "${1:-}" == "--dry-run" ]]; then
+    exec rhoCentralFoam -dry-run
+elif [[ "${1:-}" == "--parallel" ]]; then
+    if [[ $# -ne 1 ]]; then
+        echo "Usage: bash Allrun [--dry-run|--parallel]" >&2
+        exit 2
+    fi
+    decomposePar -force
+    exec mpirun -np 4 rhoCentralFoam -parallel
+elif [[ $# -ne 0 ]]; then
+    echo "Usage: bash Allrun [--dry-run|--parallel]" >&2
+    exit 2
+fi
+
+exec rhoCentralFoam

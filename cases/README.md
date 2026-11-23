@@ -1,1 +1,51 @@
-Planned standard OpenFOAM case structure: `0/`, `constant/`, `system/`. Stages: `2D_cold_flow/` (air-only, candidate rhoCentralFoam), `2D_hydrogen_mixing/` (species transport without reactions), `2D_combustion/` (finite-rate chemistry, candidate reactingFoam), and `3D/`. `chemFoam` may be used for homogeneous chemistry checks. These are workflow candidates, not completed cases; verify exact solver availability and dictionary syntax against installed OpenFOAM Foundation v9 tutorials.
+# OpenFOAM cases
+
+Use the fresh cases under `cases/wing_integrated/` for the one-sided
+wing-integrated profile in `geometry/scramjet_geometry.py`. The older cases
+directly under `cases/` contain meshes and saved results from an earlier
+geometry; they are preserved and must not be used as if they matched this
+profile.
+
+The current mesh begins at the cowl lip and ends at the nozzle exit. It
+resolves the internal duct only, not the upstream external compression flow.
+Its 1 mm spanwise extrusion is a numerical thickness for a 2D `empty` case,
+not the concept's 90 mm module width. Boundary patches are `airInlet`,
+`fuelInlets` (detailed meshes only), `lowerWall` (cowl), `upperWall` (body),
+`outlet`, and `frontAndBack` (`empty`).
+
+## Generate the meshes
+
+Run these commands from the repository root in PowerShell. Generate only the
+mesh needed by the case you intend to use:
+
+```powershell
+py -3.13 .\mesh\build_gmsh_mesh.py .\geometry\scramjet_geometry.py .\mesh\scramjet2D_wing_air.msh --profile air
+py -3.13 .\mesh\build_gmsh_mesh.py .\geometry\scramjet_geometry.py .\mesh\scramjet2D_wing_detailed.msh
+py -3.13 .\mesh\build_gmsh_mesh.py .\geometry\scramjet_geometry.py .\mesh\scramjet2D_wing_combustor.msh --profile combustor
+```
+
+In WSL, run `Allmesh` in the matching case, then use `Allrun --dry-run`
+before any solver run:
+
+| Case | Mesh profile | Solver |
+|---|---|---|
+| `wing_integrated/2D_air_flow/` | `air` | `rhoCentralFoam` |
+| `wing_integrated/2D_air_thermally_perfect/` | `air` | `rhoCentralFoam` |
+| `wing_integrated/2D_cold_flow/` | `detailed` | `rhoCentralFoam` |
+| `wing_integrated/2D_hydrogen_combustion/` | `detailed` | `rhoReactingFoam` |
+| `wing_integrated/2D_hydrogen_quasi_steady/` | `combustor` | `rhoReactingFoam` |
+
+All five cases imported their selected mesh and passed
+`checkMesh -allTopology -allGeometry`. Each solver also passed
+`Allrun --dry-run`. The profiles contain 31,049 air cells, 496,272 detailed
+cells, and 35,610 combustor cells. These checks confirm mesh topology and
+dictionary startup only, not transient convergence or physical validity.
+
+`Allmesh` refuses to overwrite an existing `constant/polyMesh`; create a fresh
+case directory rather than replacing a mesh beneath saved results. The
+quasi-steady case starts with air composition (O2 0.2329, N2 0.7671, H2 0).
+
+These are geometry-aligned starter cases, not validated predictions. The
+reacting dictionaries still use perfect-gas thermodynamics and preliminary
+fuel-flow assumptions. Check the EOS, fuel mass flow, chemistry, timestep,
+and mesh sensitivity before interpreting a simulation physically.

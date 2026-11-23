@@ -7,10 +7,11 @@ import gmsh
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_GEOMETRY = ROOT / "geometry" / "scramjet_geometry.py"
-DEFAULT_OUTPUT = ROOT / "mesh" / "scramjet2D.msh"
+DEFAULT_OUTPUT = ROOT / "mesh" / "scramjet2D_wing_detailed.msh"
 SPAN = 1.0e-3
 LC_WALL = 2.5e-4
-LC_FUEL = 2.6e-6
+# 0.075 mm target size for the 0.375 mm wing-integrated concept slots.
+LC_FUEL = 7.5e-5
 FUEL_ELEMENTS = 6
 TOL = 1.0e-10
 BBOX_TOL = 5.0e-7
@@ -40,6 +41,26 @@ def point_key(point):
 
 def segment_key(segment):
     return tuple(sorted((point_key(segment[0]), point_key(segment[1]))))
+
+
+def seal_injector_openings(points, fuel_keys, name):
+    sealed = []
+    i = 0
+    while i < len(points):
+        if (
+            i + 2 < len(points)
+            and segment_key(points[i + 1:i + 3]) in fuel_keys
+        ):
+            if not sealed or i + 4 >= len(points):
+                raise ValueError("Cannot seal injector opening at an endpoint in " + name)
+            i += 4
+        else:
+            sealed.append(points[i])
+            i += 1
+    if len(sealed) < 2:
+        raise ValueError(name + " contains fewer than two points after sealing injectors")
+    return np.asarray(sealed, dtype=float)
+
 
 def bbox_close(surface_box, curve_box):
     return all(
@@ -74,14 +95,27 @@ def load_geometry(filename):
         raise ValueError("At least one injector opening is not an explicit edge in lower or upper")
     return lower, upper, fuel_keys
 
-def build_mesh(geometry_file, output_file):
+def build_mesh(
+    geometry_file,
+    output_file,
+    lc_wall=LC_WALL,
+    lc_fuel=LC_FUEL,
+    refine_fuel=True,
+    fuel_refine_dist_min=5.0e-5,
+    fuel_refine_dist_max=2.0e-3,
+):
     lower, upper, fuel_keys = load_geometry(geometry_file)
+    if not refine_fuel:
+        lower = seal_injector_openings(lower, set(fuel_keys), "lower")
+        upper = seal_injector_openings(upper, set(fuel_keys), "upper")
+        fuel_keys = set()
     output_file.parent.mkdir(parents=True, exist_ok=True)
     gmsh.initialize()
     try:
         gmsh.option.setNumber("General.Terminal", 1)
         gmsh.option.setNumber("Mesh.MshFileVersion", 2.2)
         gmsh.option.setNumber("Mesh.Binary", 0)
+        gmsh.option.setNumber("Mesh.RecombineAll", 1)
         gmsh.option.setNumber("Mesh.MeshSizeFromPoints", 1)
         gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", 0)
         gmsh.option.setNumber("Mesh.MeshSizeExtendFromBoundary", 1)
@@ -102,7 +136,7 @@ def build_mesh(geometry_file, output_file):
                     float(point[0]) * 1.0e-3,
                     float(point[1]) * 1.0e-3,
                     0.0,
-                    LC_WALL
+                    lc_wall
                 )
             return point_tags[key]
 
@@ -129,8 +163,12 @@ def build_mesh(geometry_file, output_file):
         outlet_curve = gmsh.model.geo.addLine(add_point(lower[-1]), add_point(upper[-1]))
         all_curves.extend((inlet_curve, outlet_curve))
 
-        if len(fuel_curves) != 36:
-            raise ValueError("Mapped " + str(len(fuel_curves)) + " fuel openings instead of 36")
+        expected_fuel_curves = 36 if refine_fuel else 0
+        if len(fuel_curves) != expected_fuel_curves:
+            raise ValueError(
+                "Mapped " + str(len(fuel_curves)) + " fuel openings instead of " +
+                str(expected_fuel_curves)
+            )
 
         loop = gmsh.model.geo.addCurveLoop(
             lower_path_curves + [outlet_curve] +
@@ -138,22 +176,28 @@ def build_mesh(geometry_file, output_file):
         )
         surface = gmsh.model.geo.addPlaneSurface([loop])
         gmsh.model.geo.synchronize()
+        gmsh.model.mesh.setRecombine(2, surface)
 
-        for tag in fuel_curves:
-            gmsh.model.mesh.setTransfiniteCurve(tag, FUEL_ELEMENTS)
-            points = gmsh.model.getBoundary([(1, tag)], oriented=False, recursive=True)
-            gmsh.model.mesh.setSize(points, LC_FUEL)
+        if refine_fuel:
+            for tag in fuel_curves:
+                gmsh.model.mesh.setTransfiniteCurve(tag, FUEL_ELEMENTS)
+                points = gmsh.model.getBoundary([(1, tag)], oriented=False, recursive=True)
+                gmsh.model.mesh.setSize(points, lc_fuel)
 
-        distance = gmsh.model.mesh.field.add("Distance")
-        gmsh.model.mesh.field.setNumbers(distance, "CurvesList", fuel_curves)
-        gmsh.model.mesh.field.setNumber(distance, "Sampling", 100)
-        threshold = gmsh.model.mesh.field.add("Threshold")
-        gmsh.model.mesh.field.setNumber(threshold, "InField", distance)
-        gmsh.model.mesh.field.setNumber(threshold, "SizeMin", LC_FUEL)
-        gmsh.model.mesh.field.setNumber(threshold, "SizeMax", LC_WALL)
-        gmsh.model.mesh.field.setNumber(threshold, "DistMin", 5.0e-5)
-        gmsh.model.mesh.field.setNumber(threshold, "DistMax", 2.0e-3)
-        gmsh.model.mesh.field.setAsBackgroundMesh(threshold)
+            distance = gmsh.model.mesh.field.add("Distance")
+            gmsh.model.mesh.field.setNumbers(distance, "CurvesList", fuel_curves)
+            gmsh.model.mesh.field.setNumber(distance, "Sampling", 100)
+            threshold = gmsh.model.mesh.field.add("Threshold")
+            gmsh.model.mesh.field.setNumber(threshold, "InField", distance)
+            gmsh.model.mesh.field.setNumber(threshold, "SizeMin", lc_fuel)
+            gmsh.model.mesh.field.setNumber(threshold, "SizeMax", lc_wall)
+            gmsh.model.mesh.field.setNumber(
+                threshold, "DistMin", fuel_refine_dist_min
+            )
+            gmsh.model.mesh.field.setNumber(
+                threshold, "DistMax", fuel_refine_dist_max
+            )
+            gmsh.model.mesh.field.setAsBackgroundMesh(threshold)
 
         extruded = gmsh.model.geo.extrude(
             [(2, surface)],
@@ -226,8 +270,10 @@ def build_mesh(geometry_file, output_file):
                 str(len(surface_groups["frontAndBack"]))
             )
         for name, tags in surface_groups.items():
-            if not tags:
+            if not tags and name != "fuelInlets":
                 raise RuntimeError("Physical surface group is empty: " + name)
+            if not tags:
+                continue
             group = gmsh.model.addPhysicalGroup(2, tags)
             gmsh.model.setPhysicalName(2, group, name)
 
@@ -253,10 +299,37 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("geometry", nargs="?", type=Path, default=DEFAULT_GEOMETRY)
     parser.add_argument("output", nargs="?", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument(
+        "--profile",
+        choices=("detailed", "air", "combustor"),
+        default="detailed",
+        help=(
+            "detailed retains full 13-micron injector refinement; air seals "
+            "injectors; combustor retains injector slots with a reduced refinement region"
+        ),
+    )
     args = parser.parse_args()
     if not args.geometry.is_file():
         raise FileNotFoundError("Geometry script not found: " + str(args.geometry))
-    build_mesh(args.geometry.resolve(), args.output.resolve())
+    if args.profile == "air":
+        build_mesh(
+            args.geometry.resolve(),
+            args.output.resolve(),
+            lc_wall=1.0e-3,
+            lc_fuel=1.3e-5,
+            refine_fuel=False,
+        )
+    elif args.profile == "combustor":
+        build_mesh(
+            args.geometry.resolve(),
+            args.output.resolve(),
+            lc_wall=1.0e-3,
+            lc_fuel=LC_FUEL,
+            fuel_refine_dist_min=2.5e-5,
+            fuel_refine_dist_max=5.0e-4,
+        )
+    else:
+        build_mesh(args.geometry.resolve(), args.output.resolve())
 
 if __name__ == "__main__":
     main()

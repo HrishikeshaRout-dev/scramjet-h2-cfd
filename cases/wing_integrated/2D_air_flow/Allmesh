@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+case_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd -- "$case_dir/../../.." && pwd)"
+mesh_file="${SCRAMJET_MESH_FILE:-$repo_root/mesh/scramjet2D_wing_air.msh}"
+exec bash "$repo_root/mesh/import_openfoam_mesh.sh" "$case_dir" "$mesh_file"
