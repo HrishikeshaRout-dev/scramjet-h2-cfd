@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+case_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ "${WM_PROJECT_VERSION:-}" != "9" ]]; then
+    echo "This case targets OpenFOAM Foundation v9." >&2
+    echo "Source the Foundation v9 etc/bashrc, then rerun Allrun." >&2
+    echo "Detected WM_PROJECT_VERSION='${WM_PROJECT_VERSION:-not set}'." >&2
+    exit 1
+fi
+command -v rhoCentralFoam >/dev/null || {
+    echo "rhoCentralFoam is not on PATH. Check your OpenFOAM environment." >&2
+    exit 1
+}
+if [[ ! -f "$case_dir/constant/polyMesh/boundary" ]]; then
+    echo "Mesh not found. Run bash Allmesh first." >&2
+    exit 1
+fi
+cd "$case_dir"
+exec rhoCentralFoam

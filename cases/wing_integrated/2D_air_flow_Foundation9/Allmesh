@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+case_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd -- "$case_dir/../../.." && pwd)"
+mesh_file="${SCRAMJET_MESH_FILE:-$repo_root/mesh/scramjet2D_wing_air.msh}"
+
+if [[ "${WM_PROJECT_VERSION:-}" != "9" ]]; then
+    echo "This mesh workflow targets OpenFOAM Foundation v9." >&2
+    echo "Source the Foundation v9 etc/bashrc, then rerun Allmesh." >&2
+    echo "Detected WM_PROJECT_VERSION='${WM_PROJECT_VERSION:-not set}'." >&2
+    exit 1
+fi
+command -v gmshToFoam >/dev/null || { echo "gmshToFoam not found on PATH." >&2; exit 1; }
+if [[ ! -f "$mesh_file" ]]; then
+    command -v python3 >/dev/null || { echo "python3 not found." >&2; exit 1; }
+    python3 -c "import gmsh, numpy" || {
+        echo "Install the Python gmsh and numpy modules before generating the mesh." >&2
+        exit 1
+    }
+    python3 "$repo_root/mesh/build_gmsh_mesh.py" "$repo_root/geometry/scramjet_geometry.py" "$mesh_file" --profile air
+fi
+if [[ -e "$case_dir/constant/polyMesh" ]]; then
+    echo "Mesh already exists. Remove constant/polyMesh only if you intend to replace it." >&2
+    exit 2
+fi
+gmshToFoam -case "$case_dir" "$mesh_file"
+
+python3 - "$case_dir/constant/polyMesh/boundary" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text()
+pattern = r"(?ms)(^\s*frontAndBack\s*\{\s*type\s+)(?:patch|empty);(\s*physicalType\s+)(?:patch|empty);"
+text, count = re.subn(pattern, r"\1empty;\2empty;", text, count=1)
+if count != 1:
+    raise SystemExit("Could not convert exactly one frontAndBack patch to empty.")
+path.write_text(text)
+PY
+
+cd "$case_dir"
+check_log="$(mktemp)"
+trap 'rm -f "$check_log"' EXIT
+checkMesh -allTopology -allGeometry 2>&1 | tee "$check_log"
+grep -Fxq "Mesh OK." "$check_log" || {
+    echo "Mesh check did not finish with 'Mesh OK.'; inspect the output before solving." >&2
+    exit 2
+}
