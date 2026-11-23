@@ -2,7 +2,9 @@
 
 `build_gmsh_mesh.py` reads `geometry/scramjet_geometry.py`, whose CFD boundary
 aliases begin at the cowl lip and end at the nozzle exit. The generated mesh is
-an internal-flow domain; upstream external compression is not included.
+an internal-flow domain; upstream external compression is not included. The
+symmetric 6-degree nozzle change moves both outlet-wall endpoints, so every
+mesh must be regenerated from the current geometry source.
 
 Generate the desired profile from the repository root in PowerShell:
 
@@ -19,19 +21,17 @@ The profiles are:
 - `combustor`: retains the 36 slots but uses a smaller refinement region.
 
 All three use quad surface cells extruded to hexahedra. This avoids the
-underdetermined corner cells found in the prior triangular-prism mesh. All
-profiles passed OpenCFD OpenFOAM v1912 `checkMesh -allTopology -allGeometry`:
+underdetermined corner cells found in the prior triangular-prism mesh. Each
+generated mesh is 1 mm thick in the spanwise direction; `frontAndBack` must be
+`empty` for these 2D cases.
 
-| Profile | Cells | Maximum non-orthogonality |
-|---|---:|---:|
-| `air` | 31,049 | 39.9 degrees |
-| `detailed` | 496,272 | 35.9 degrees |
-| `combustor` | 35,610 | 34.2 degrees |
-
-Each generated mesh is 1 mm thick in the spanwise direction;
-`frontAndBack` must be `empty` for these 2D cases.
+The cell counts and mesh-quality figures previously recorded in this file
+were obtained for the earlier nozzle geometry. They are not validation results
+for the symmetric-nozzle revision. After regeneration, import each mesh into a
+fresh case and rerun `checkMesh -allTopology -allGeometry`; record the new
+counts and quality metrics before using it for quantitative CFD.
 
 Each current-geometry case has an `Allmesh` wrapper that imports its matching
-mesh and runs the same full `checkMesh` checks. The shared importer refuses to
-overwrite an existing `constant/polyMesh`, protecting saved case data. Mesh
-files are generated artifacts and are ignored by Git.
+mesh and runs the mesh checks. The shared importer refuses to overwrite an
+existing `constant/polyMesh`, protecting saved case data. Mesh files are
+generated artifacts and are ignored by Git.
